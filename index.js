@@ -30,6 +30,7 @@ const bot = new Telegraf(TELEGRAM_BOT_TOKEN);
 const app = express();
 app.use(express.json());
 app.use(cors());
+const IMG_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
 
 // Simple shared-secret check for the REST API used by the dashboard artifact.
 // Note: this token lives in the artifact's client-side code, so it deters
@@ -165,7 +166,8 @@ bot.on("photo", async (ctx) => {
     const imgRes = await fetch(fileLink.href);
     const buf = Buffer.from(await imgRes.arrayBuffer());
     const base64 = buf.toString("base64");
-    const mediaType = imgRes.headers.get("content-type") || "image/jpeg";
+    const headerType = imgRes.headers.get("content-type");
+    const mediaType = IMG_TYPES.has(headerType) ? headerType : "image/jpeg";
 
     const extracted = await extractFromReceipt(base64, mediaType, ctx.message.caption);
     if (extracted.amount == null) {
