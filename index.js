@@ -25,7 +25,7 @@ const CATEGORIES = [
   "Entertainment", "Travel", "Other",
 ];
 
-const pool = new pg.Pool({ connectionString: DATABASE_URL, ssl: { rejectUnauthorized: false } });
+const pool = new pg.Pool({ connectionString: DATABASE_URL, ssl: process.env.PGSSL === "false" ? false : { rejectUnauthorized: false } });
 const bot = new Telegraf(TELEGRAM_BOT_TOKEN);
 const app = express();
 app.use(express.json());
