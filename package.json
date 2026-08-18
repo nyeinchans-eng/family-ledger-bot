@@ -1,0 +1,19 @@
+{
+  "name": "family-ledger-bot",
+  "version": "1.0.0",
+  "description": "Telegram bot that logs family expenses from receipt photos and chat messages into Postgres",
+  "type": "module",
+  "main": "index.js",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "start": "node index.js",
+    "migrate": "node db/migrate.js"
+  },
+  "dependencies": {
+    "telegraf": "^4.16.3",
+    "pg": "^8.12.0",
+    "express": "^4.19.2",
+    "dotenv": "^16.4.5",
+    "cors": "^2.8.5"
+  }
+}
