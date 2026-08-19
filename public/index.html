@@ -421,7 +421,10 @@ function startEdit(id){
   const e = expenses.find(x=>x.id===id); if(!e) return;
   form = { date:e.date, amount:String(e.amount), currency:e.currency, category:e.category, merchant:e.merchant, note:e.note, enteredBy:e.enteredBy };
   editingId = id;
-  document.querySelector('[data-tab="add"]').click();
+  tab = "add";
+  document.querySelectorAll("nav.tabs button").forEach(b=>b.classList.toggle("active", b.dataset.tab==="add"));
+  document.querySelectorAll("main > section").forEach(s=>s.classList.add("hidden"));
+  document.getElementById("tab-add").classList.remove("hidden");
   renderForm("Save changes");
 }
 
