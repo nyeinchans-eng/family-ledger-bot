@@ -25,11 +25,15 @@ const CATEGORIES = [
   "Entertainment", "Travel", "Other",
 ];
 
-const pool = new pg.Pool({ connectionString: DATABASE_URL, ssl: process.env.PGSSL === "false" ? false : { rejectUnauthorized: false } });
+const pool = new pg.Pool({
+  connectionString: DATABASE_URL,
+  ssl: process.env.PGSSL === "false" ? false : { rejectUnauthorized: false },
+});
 const bot = new Telegraf(TELEGRAM_BOT_TOKEN);
 const app = express();
 app.use(express.json());
 app.use(cors());
+
 const IMG_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
 
 // Simple shared-secret check for the REST API used by the dashboard artifact.
@@ -65,7 +69,7 @@ async function callClaude({ system, content }) {
 }
 
 async function extractFromReceipt(base64, mediaType, caption) {
-  const system = `You read a photo of a purchase receipt from a family expense-tracking Telegram bot. Output ONLY a JSON object, no prose:
+  const system = `You read a photo of a purchase receipt from a family expense-tracking app. Output ONLY a JSON object, no prose:
 {"merchant": string|null, "date": "YYYY-MM-DD"|null, "amount": number|null, "currency": "MMK"|"USD"|"SGD"|"THB"|null, "category": one of ${JSON.stringify(CATEGORIES)}, "note": string|null}
 amount is the final total paid, numeric only. If a caption is provided alongside the photo, use it as extra context (e.g. who it's for). If unreadable, use null for that field.`;
   const content = [
@@ -166,6 +170,8 @@ bot.on("photo", async (ctx) => {
     const imgRes = await fetch(fileLink.href);
     const buf = Buffer.from(await imgRes.arrayBuffer());
     const base64 = buf.toString("base64");
+    // Telegram's file server doesn't reliably report content-type; Telegram
+    // photos are always JPEG regardless of what the header says.
     const headerType = imgRes.headers.get("content-type");
     const mediaType = IMG_TYPES.has(headerType) ? headerType : "image/jpeg";
 
@@ -277,10 +283,24 @@ app.put("/settings", requireApiToken, async (req, res) => {
   }
 });
 
+app.post("/expenses/scan", requireApiToken, async (req, res) => {
+  try {
+    const { base64, mediaType, caption } = req.body;
+    const extracted = await extractFromReceipt(base64, mediaType || "image/jpeg", caption);
+    res.json(extracted);
+  } catch (e) {
+    console.error(e);
+    res.status(400).json({ error: "failed to read receipt" });
+  }
+});
+
+// ---------- Static dashboard (served as a normal webpage, not a Claude artifact) ----------
+app.use(express.static("public"));
+
 // ---------- Webhook wiring ----------
 const webhookPath = `/telegram/${WEBHOOK_SECRET}`;
 app.use(bot.webhookCallback(webhookPath));
-app.get("/", (req, res) => res.send("Family ledger bot is running."));
+app.get("/health", (req, res) => res.send("Family ledger bot is running."));
 
 app.listen(PORT, async () => {
   console.log(`Server listening on ${PORT}`);
