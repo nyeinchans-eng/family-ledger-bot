@@ -45,8 +45,24 @@ function requireApiToken(req, res, next) {
   next();
 }
 
+// Sonnet 5 introductory pricing (per Anthropic's pricing page as of Aug 2026).
+// Update these if pricing changes — this feeds an *estimate*, not your actual invoice.
+const PRICE_PER_M_INPUT = Number(process.env.PRICE_PER_M_INPUT || 2);
+const PRICE_PER_M_OUTPUT = Number(process.env.PRICE_PER_M_OUTPUT || 10);
+
+async function logApiUsage(usage, purpose) {
+  try {
+    await pool.query(
+      "insert into api_usage (input_tokens, output_tokens, purpose) values ($1,$2,$3)",
+      [usage?.input_tokens || 0, usage?.output_tokens || 0, purpose]
+    );
+  } catch (e) {
+    console.error("Failed to log API usage:", e);
+  }
+}
+
 // ---------- Claude API helpers ----------
-async function callClaude({ system, content }) {
+async function callClaude({ system, content, purpose }) {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -63,6 +79,7 @@ async function callClaude({ system, content }) {
   });
   if (!res.ok) throw new Error(`Anthropic API error: ${res.status} ${await res.text()}`);
   const data = await res.json();
+  await logApiUsage(data.usage, purpose);
   const textBlock = (data.content || []).find((b) => b.type === "text");
   if (!textBlock) throw new Error("No text in Claude response");
   return JSON.parse(textBlock.text.replace(/```json|```/g, "").trim());
@@ -76,14 +93,14 @@ amount is the final total paid, numeric only. If a caption is provided alongside
     { type: "image", source: { type: "base64", media_type: mediaType, data: base64 } },
     { type: "text", text: caption ? `Caption: "${caption}". Extract the receipt as the specified JSON object.` : "Extract the receipt as the specified JSON object." },
   ];
-  return callClaude({ system, content });
+  return callClaude({ system, content, purpose: "receipt" });
 }
 
 async function extractFromText(message) {
   const system = `You read one message from a family expense-tracking Telegram group chat. Decide if it describes a specific expense worth logging (e.g. "12000 kyats grab to airport", "paid 5$ for lunch"). Casual chat, questions, greetings, or replies with no amount are NOT expenses. Output ONLY JSON:
 {"is_expense": boolean, "merchant": string|null, "date": "YYYY-MM-DD"|null, "amount": number|null, "currency": "MMK"|"USD"|"SGD"|"THB"|null, "category": one of ${JSON.stringify(CATEGORIES)}, "note": string|null}
 If is_expense is false, all other fields should be null. Numbers with "k" or "kyats" are MMK; "$" or "usd" is USD.`;
-  return callClaude({ system, content: [{ type: "text", text: message }] });
+  return callClaude({ system, content: [{ type: "text", text: message }], purpose: "text" });
 }
 
 // ---------- DB ----------
@@ -291,6 +308,29 @@ app.post("/expenses/scan", requireApiToken, async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(400).json({ error: "failed to read receipt" });
+  }
+});
+
+app.get("/usage/summary", requireApiToken, async (req, res) => {
+  try {
+    const monthRow = (await pool.query(
+      `select coalesce(sum(input_tokens),0) as in_tok, coalesce(sum(output_tokens),0) as out_tok, count(*) as calls
+       from api_usage where date_trunc('month', created_at) = date_trunc('month', now())`
+    )).rows[0];
+    const allTimeRow = (await pool.query(
+      `select coalesce(sum(input_tokens),0) as in_tok, coalesce(sum(output_tokens),0) as out_tok, count(*) as calls
+       from api_usage`
+    )).rows[0];
+    const cost = (r) => (Number(r.in_tok) / 1e6) * PRICE_PER_M_INPUT + (Number(r.out_tok) / 1e6) * PRICE_PER_M_OUTPUT;
+    res.json({
+      pricePerMInput: PRICE_PER_M_INPUT,
+      pricePerMOutput: PRICE_PER_M_OUTPUT,
+      thisMonth: { calls: Number(monthRow.calls), inputTokens: Number(monthRow.in_tok), outputTokens: Number(monthRow.out_tok), estimatedCost: cost(monthRow) },
+      allTime: { calls: Number(allTimeRow.calls), inputTokens: Number(allTimeRow.in_tok), outputTokens: Number(allTimeRow.out_tok), estimatedCost: cost(allTimeRow) },
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "failed to load usage summary" });
   }
 });
 
