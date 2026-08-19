@@ -24,3 +24,12 @@ create table if not exists settings (
   members text[] not null default '{}'
 );
 insert into settings (id) values (1) on conflict (id) do nothing;
+
+create table if not exists api_usage (
+  id uuid primary key default uuid_generate_v4(),
+  input_tokens integer not null,
+  output_tokens integer not null,
+  purpose text,                                  -- 'receipt' | 'text'
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_api_usage_created on api_usage (created_at);
