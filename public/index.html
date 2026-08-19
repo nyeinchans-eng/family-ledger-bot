@@ -256,8 +256,10 @@ function renderDashboard(){
     </div>
     <h3 class="display" style="font-size:15px;margin:14px 0 8px;">Recent entries</h3>
     <div id="recentList"></div>
+    <div id="usageCard"></div>
   `;
   document.getElementById("recentList").innerHTML = expenses.slice(0,4).map(stripHtml).join("") || '<p class="muted">No entries yet — add your first one.</p>';
+  renderUsageCard();
   wireStripButtons(el);
 
   if (cats.length) {
@@ -266,6 +268,30 @@ function renderDashboard(){
   const months=[]; for(let i=5;i>=0;i--){ const d=new Date(now.getFullYear(),now.getMonth()-i,1); months.push({key:d.getFullYear()+"-"+d.getMonth(), label:d.toLocaleString("en",{month:"short"}), total:0}); }
   expenses.forEach(e=>{ if(e.currency!==settings.currency) return; const d=new Date(e.date); const k=d.getFullYear()+"-"+d.getMonth(); const m=months.find(mo=>mo.key===k); if(m) m.total+=Number(e.amount||0); });
   drawBarChart("trendChart", months.map(m => m.label), months.map(m => m.total), "#3E6B52");
+}
+
+let usageCache = null;
+async function renderUsageCard() {
+  const el = document.getElementById("usageCard");
+  if (!el) return;
+  if (!usageCache) {
+    try { usageCache = await apiGet("/usage/summary"); } catch (e) { el.innerHTML = ""; return; }
+  }
+  const u = usageCache;
+  const fmtUsd = (n) => "$" + n.toLocaleString("en-US", { minimumFractionDigits: n < 1 ? 4 : 2, maximumFractionDigits: n < 1 ? 4 : 2 });
+  const fmtTok = (n) => n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n);
+  el.innerHTML = `
+    <h3 class="display" style="font-size:15px;margin:18px 0 8px;">Claude API usage</h3>
+    <div class="card">
+      <div class="grid2" style="margin-bottom:10px;">
+        <div class="stamp"><span class="label">This month (est.)</span><span class="val mono">${fmtUsd(u.thisMonth.estimatedCost)}</span></div>
+        <div class="stamp"><span class="label">All time (est.)</span><span class="val mono">${fmtUsd(u.allTime.estimatedCost)}</span></div>
+      </div>
+      <div class="legend-row"><span>Calls this month</span><span class="mono">${u.thisMonth.calls}</span></div>
+      <div class="legend-row"><span>Tokens in / out (month)</span><span class="mono">${fmtTok(u.thisMonth.inputTokens)} / ${fmtTok(u.thisMonth.outputTokens)}</span></div>
+      <p class="muted" style="margin-top:8px;margin-bottom:0;font-size:11px;">Estimated from actual token counts at $${u.pricePerMInput}/$${u.pricePerMOutput} per million tokens (in/out). Not Anthropic's official invoice — check console.anthropic.com for that.</p>
+    </div>
+  `;
 }
 
 function stripHtml(e){
